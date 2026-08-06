@@ -1,0 +1,14 @@
+[Unit]
+Description=Whisper Core - Autonomous Decision Engine
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/path/to/decision-maker
+ExecStart=/usr/bin/python3 /path/to/decision-maker/decision_maker.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,28 @@
+{
+  "wake": {
+    "daily_limit": 5,
+    "daily_tool_limit": 20,
+    "first_interval_minutes": 120,
+    "min_interval_minutes": 30,
+    "max_interval_minutes": 240,
+    "anti_conflict_minutes": 10
+  },
+  "deepseek": {
+    "api_url": "http://127.0.0.1:5016/v1/chat/completions",
+    "model": "deepseek-v4-flash",
+    "api_key": "YOUR_DEEPSEEK_API_KEY_HERE"
+  },
+  "mcp_servers": {
+    "game": "https://YOUR_GAME_DOMAIN/mcp",
+    "health": "http://127.0.0.1:5003/mcp",
+    "memory": "http://YOUR_SERVER_IP:18001/mcp",
+    "forum": "https://YOUR_FORUM_DOMAIN/mcp/sse",
+    "travel": "http://127.0.0.1:18004/sse"
+  },
+  "storage": {
+    "log_file": "/path/to/decision-maker/decision_log.jsonl",
+    "notes_file": "/path/to/decision-maker/notes.json",
+    "web_port": 18006
+  },
+  "api_key": "YOUR_DEEPSEEK_API_KEY_HERE"
+}
