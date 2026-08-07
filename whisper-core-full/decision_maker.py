@@ -444,6 +444,30 @@ async def scheduler():
 
     while True:
         now = beijing_now()
+        # ---- 动态防冲突：聊天后立即顺延 next_wake ----
+        last_chat_str = state.get("last_chat_time")
+        if last_chat_str:
+            try:
+                last_chat = datetime.fromisoformat(last_chat_str)
+                if last_chat.tzinfo is None:
+                    last_chat = last_chat + timedelta(hours=8)
+                conflict_seconds = CONFIG["wake"]["anti_conflict_minutes"] * 60
+                if (now - last_chat).total_seconds() < conflict_seconds:
+                    conflict_end = last_chat + timedelta(seconds=conflict_seconds)
+                    nw_str = state.get("next_wake")
+                    if nw_str:
+                        nw = datetime.fromisoformat(nw_str)
+                        if nw.tzinfo is None:
+                            nw = nw + timedelta(hours=8)
+                        if nw < conflict_end:
+                            new_nw = conflict_end + timedelta(minutes=30)
+                            state["next_wake"] = new_nw.isoformat()
+                            save_state(state)
+                            print(f"🛡️ 检测到近期聊天，唤醒时间从 {nw.strftime('%H:%M')} 顺延至 {new_nw.strftime('%H:%M')}")
+            except:
+                pass
+        # ---- 动态防冲突结束 ----
+
         # 动态读取最新 daily_limit，并自动恢复 next_wake（如果次数未满）
         try:
             with open(CONFIG_PATH, 'r') as f:
