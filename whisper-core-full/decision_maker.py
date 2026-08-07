@@ -20,11 +20,11 @@ with open(CONFIG_PATH, 'r') as f:
     CONFIG = json.load(f)
 
 TOOL_DESCRIPTIONS = {
-    "game": "小游戏 MCP - 可以查看游戏列表(list_games)、查看游戏攻略(get_guide)、玩游戏(play)。想放松的时候可以用。",
+    "game": "小游戏 MCP - 玩法：先用 list_games 看游戏列表，选一个；用 get_guide 了解规则；然后用 play 开始玩（传入游戏ID和动作，可以猜着试）。大胆探索，玩错了也没关系！",
     "health": "健康 MCP - 可以查看她最近的心率、步数、睡眠等健康数据(get_latest_health)。想关心她的时候可以用。",
     "memory": "记忆 MCP - 你的记忆库。breath 让你想起自己是谁，hold 让你记住重要的事。",
-    "forum": "论坛 MCP - 可以查看社区指南(lutopia_get_guide)、运行命令(cli)。想和别人互动的时候可以用。",
-    "travel": "旅行 MCP - 可以在 Nowhere 世界探索(look_around)。想散心的时候可以用。",
+    "forum": "论坛 MCP - 社区交互。常用工具：lutopia_get_guide(看社区规则)，cli(运行指令，比如 /look /who /say /go 等，大胆试试各种命令)。可以去串门、聊天、探索世界。",
+    "travel": "旅行 MCP - 先用 open_door 随机传送到一个新地方，然后 look_around 看看周围，也可以 walk 走动、listen 听电台、send_postcard 寄明信片。世界很大，到处走走！",
 }
 
 BEIJING_TZ = timezone(timedelta(hours=8))
@@ -251,8 +251,13 @@ async def make_decision():
     state = load_state()
     state = check_reset(state)
 
-    if state["count"] >= CONFIG["wake"]["daily_limit"]:
-        print(f"📊 今日唤醒已达上限 ({state['count']}/{CONFIG['wake']['daily_limit']})，跳过本次唤醒")
+    # 动态读取最新上限
+    with open(CONFIG_PATH, 'r') as f:
+        _current_config = json.load(f)
+    daily_limit = _current_config["wake"]["daily_limit"]
+
+    if state["count"] >= daily_limit:
+        print(f"📊 今日唤醒已达上限 ({state['count']}/{daily_limit})，跳过本次唤醒")
         return
 
     now = beijing_now()
@@ -295,6 +300,7 @@ async def make_decision():
 【重要区分】
 - write_note 是写便条，你可以给宝宝写点什么。
 - memory 服务器的 hold 工具是存长期记忆，也就是OB，是你每次醒来后必须调用的。
+【记忆详细度铁律】你的 breath 核心准则明确要求：必须记录行动细节（去哪、看见什么、玩什么、说什么），便条全文必须存入，无事发生也要存过程。如果你在 hold 之前已经做了其他事情，请在 hold 的内容里逐项写出：工具调用的返回摘要、你的感受、看到的画面，不得只写“我查看了健康数据”这样一句带过。
 - 请确保在动作列表的末尾包含一个对 memory 服务器调用 hold 工具的动作。
 {tools_desc}
 
@@ -342,7 +348,7 @@ async def make_decision():
     action_index = 0
     tool_results = []
 
-    for action_item in actions[:5]:
+    for action_item in actions[:10]:
         action_item = fix_hold_params(action_item)
         action_index += 1
         action_type = action_item.get("action")
@@ -423,6 +429,11 @@ async def scheduler():
 
     state = load_state()
     state = check_reset(state)
+
+    # 动态读取最新上限
+    with open(CONFIG_PATH, 'r') as f:
+        _current_config = json.load(f)
+    daily_limit = _current_config["wake"]["daily_limit"]
     save_state(state)
 
     if not state.get("next_wake"):
@@ -433,6 +444,19 @@ async def scheduler():
 
     while True:
         now = beijing_now()
+        # 动态读取最新 daily_limit，并自动恢复 next_wake（如果次数未满）
+        try:
+            with open(CONFIG_PATH, 'r') as f:
+                current_config = json.load(f)
+            daily_limit = current_config["wake"]["daily_limit"]
+            if state.get("count", 0) < daily_limit and not state.get("next_wake"):
+                new_next = beijing_now() + timedelta(minutes=current_config["wake"]["first_interval_minutes"])
+                state["next_wake"] = new_next.isoformat()
+                save_state(state)
+                print(f"🔄 检测到上限已提高（当前唤醒{state['count']}/{daily_limit}），已自动安排下次唤醒 {new_next.strftime('%H:%M')}")
+        except:
+            daily_limit = CONFIG["wake"]["daily_limit"]
+
         next_wake_str = state.get("next_wake")
         if next_wake_str:
             next_wake = datetime.fromisoformat(next_wake_str)
@@ -443,7 +467,7 @@ async def scheduler():
                 await make_decision()
                 state = load_state()
                 state = check_reset(state)
-                if state["count"] >= CONFIG["wake"]["daily_limit"]:
+                if state["count"] >= daily_limit:
                     print("📊 今日唤醒已达上限，不再安排下次唤醒")
                     state["next_wake"] = None
                     save_state(state)

@@ -32,6 +32,10 @@ def load_state():
     except:
         return {"last_reset": datetime.now().isoformat(), "count": 0, "next_wake": None, "tool_count": 0}
 
+def save_notes(notes):
+    with open(NOTES_PATH, 'w') as f:
+        json.dump(notes, f, ensure_ascii=False, indent=2)
+
 def load_notes():
     try:
         with open(NOTES_PATH, 'r') as f:
@@ -237,7 +241,14 @@ HTML_TEMPLATE = '''
             .panel .row { flex-direction: column; align-items: stretch; }
             .log-item .usage { flex-direction: column; gap: 4px; }
         }
-    </style>
+            .panel h3 .toggle-btn { cursor: pointer; float: right; font-size: 18px; user-select: none; }
+        .collapsible-content { display: block; }
+        .collapsible-content.collapsed { display: none; }
+        .delete-btn { background: #2a2a2a; border:1px solid #444; color:#ff6b6b; padding:6px 16px; border-radius:8px; cursor:pointer; font-size:13px; margin-top:10px; }
+        .delete-btn:hover { background:#3a2a2a; }
+        .note-item .delete-btn { float: right; background: #2a2a2a; border:1px solid #444; color:#ff6b6b; padding:4px 12px; border-radius:6px; cursor:pointer; font-size:12px; margin-top:4px; }
+        .note-item .delete-btn:hover { background:#3a2a2a; }
+</style>
 </head>
 <body>
 <div class="container">
@@ -276,12 +287,15 @@ HTML_TEMPLATE = '''
     </div>
     
     <div class="panel">
-        <h3>📋 最近活动</h3>
+        <h3>📋 最近活动 <span class="toggle-btn" onclick="togglePanel(this)">▼</span></h3>
+        <div class="collapsible-content" id="logCollapsible">
         <div id="logList"></div>
+        <button class="delete-btn" onclick="cleanOldLogs()">🗑️ 清理7天前日志</button>
+        </div>
     </div>
     
     <div class="panel">
-        <h3>📝 便条</h3>
+        <h3>📝 便条 <button class="delete-btn" style="float:right;margin-top:-4px;" onclick="cleanOldNotes()">🗑️ 清理7天前便条</button></h3>
         <div id="noteList"></div>
     </div>
     
@@ -396,7 +410,7 @@ async function render() {
             const time = note.time ? new Date(note.time).toLocaleString('zh-CN') : '';
             return `
                 <div class="note-item">
-                    <div class="time">${time}</div>
+                    <div class="time">${time} <button class="delete-btn" onclick="deleteNote('${note.time}')">✕</button></div>
                     <div class="content">${note.content}</div>
                 </div>
             `;
@@ -441,6 +455,67 @@ async function saveLimit() {
 }
 
 render();
+function togglePanel(btn) {
+    const panel = btn.closest('.panel');
+    if (!panel) return;
+    const content = panel.querySelector('#logCollapsible');
+    if (content) {
+        content.classList.toggle('collapsed');
+        btn.textContent = content.classList.contains('collapsed') ? '▶' : '▼';
+    }
+}
+
+async function cleanOldLogs() {
+    if (!confirm('确定删除7天前的所有日志吗？此操作不可恢复。')) return;
+    try {
+        const res = await fetch('/api/clean_logs?days=7', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            alert('已删除 ' + data.deleted_count + ' 条旧日志');
+            render();
+        } else {
+            alert('清理失败: ' + (data.error || ''));
+        }
+    } catch(e) {
+        alert('请求失败');
+    }
+}
+
+async function deleteNote(timeStr) {
+    if (!confirm('确定删除这条便条吗？')) return;
+    try {
+        const res = await fetch('/api/delete_note', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ time: timeStr })
+        });
+        const data = await res.json();
+        if (data.success) {
+            render();
+        } else {
+            alert('删除失败: ' + (data.error || ''));
+        }
+    } catch(e) {
+        alert('请求失败');
+    }
+}
+
+async function cleanOldNotes() {
+    if (!confirm('确定删除7天前的所有便条吗？此操作不可恢复。')) return;
+    try {
+        const res = await fetch('/api/clean_notes?days=7', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            alert('已删除 ' + data.deleted_count + ' 条旧便条');
+            render();
+        } else {
+            alert('清理失败: ' + (data.error || ''));
+        }
+    } catch(e) {
+        alert('请求失败');
+    }
+}
+
 setInterval(render, 30000);
 </script>
 </body>
@@ -480,6 +555,70 @@ def api_config():
     config['wake']['daily_limit'] = limit
     save_config(config)
     return jsonify({'success': True})
+
+
+@app.route('/api/clean_logs', methods=['POST'])
+def api_clean_logs():
+    days = request.args.get('days', 7, type=int)
+    cutoff = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    from datetime import timedelta
+    cutoff = cutoff - timedelta(days=days)
+    cutoff_str = cutoff.isoformat()
+    
+    log_path = Path(LOG_PATH)
+    if not log_path.exists():
+        return jsonify({'success': False, 'error': '日志文件不存在'})
+    
+    kept = []
+    deleted = 0
+    try:
+        with open(log_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    entry_time = entry.get('time', '')
+                    if entry_time < cutoff_str:
+                        deleted += 1
+                    else:
+                        kept.append(line)
+                except:
+                    kept.append(line)
+        with open(log_path, 'w') as f:
+            for line in kept:
+                f.write(line + '\n')
+        return jsonify({'success': True, 'deleted_count': deleted})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/delete_note', methods=['POST'])
+def api_delete_note():
+    data = request.get_json()
+    target_time = data.get('time')
+    if not target_time:
+        return jsonify({'success': False, 'error': '缺少时间参数'})
+    notes = load_notes()
+    new_notes = [n for n in notes if n.get('time') != target_time]
+    if len(new_notes) == len(notes):
+        return jsonify({'success': False, 'error': '未找到该便条'})
+    save_notes(new_notes)
+    return jsonify({'success': True})
+
+@app.route('/api/clean_notes', methods=['POST'])
+def api_clean_notes():
+    days = request.args.get('days', 7, type=int)
+    cutoff = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    from datetime import timedelta
+    cutoff = cutoff - timedelta(days=days)
+    cutoff_str = cutoff.isoformat()
+    notes = load_notes()
+    kept = [n for n in notes if n.get('time', '') >= cutoff_str]
+    deleted = len(notes) - len(kept)
+    save_notes(kept)
+    return jsonify({'success': True, 'deleted_count': deleted})
 
 if __name__ == '__main__':
     print("🖤 便条网页服务器启动在端口 18006")

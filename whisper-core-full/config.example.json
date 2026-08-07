@@ -1,7 +1,7 @@
 {
   "wake": {
-    "daily_limit": 5,
-    "daily_tool_limit": 20,
+    "daily_limit": 15,
+    "daily_tool_limit": 100,
     "first_interval_minutes": 120,
     "min_interval_minutes": 30,
     "max_interval_minutes": 240,
